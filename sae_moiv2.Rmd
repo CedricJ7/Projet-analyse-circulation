@@ -9,13 +9,13 @@ output: html_document
 A changer pour être dans le bon répertoire
 
 ```{r, echo=FALSE}
-setwd("~/BUT SD/semestre 3/serie_chronologique/sae/projet/")
+#setwd("~/BUT SD/semestre 3/serie_chronologique/sae/projet/")
 ```
 
 Charger le jeux de données, nous l'apperlerons "data".
 
 ```{r}
-data <- read.csv("route_intersection.csv")
+#data <- read.csv("route_intersection.csv")
 data = read.csv("C:/Users/Cédric/Downloads/route_intersection.csv")
 ```
 
@@ -343,7 +343,7 @@ library(gap)
  res_chow <-chow.test(y1,x1 , y2,x2)
  chow_pvalues[t0]<-res_chow[4]
  }
- plot(log(chow_pvalues))
+ #plot(log(chow_pvalues))
  which.min(log(chow_pvalues))
 ```
 
@@ -361,6 +361,8 @@ ggplot(data = data_modifie, aes(date, E1_I1))+
   geom_line(aes(x=data_modifie$date[t0+38]), col = "blue")
 ```
 ça correspond bien à quelques jours après la cassure on a une baisse !
+
+Ici j'essaye de voir ce qui se passe sur les entrées 1 à 3 de manière globale ainsi qu'au niveau du rapport entré/présent intersection
 
 ```{r}
 data_modifie
@@ -427,18 +429,40 @@ ggplot(data = data_modifie, aes(x = date, y = E)) +
   labs(x = "Date", y = "Entré") +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
+#data_modifie$E_modelemult=E_linear$fitted*data_modifie$E_periode_7j inadapté
+
+
 ```
 
+meilleur modèle : additif
 
+=> serie des différences
+```{r}
 
+data_modifie$E
 
+data_modifie$E_diff=c(NA,diff(data_modifie$E))
 
+ggplot(data = data_modifie,aes(y=E_diff,x=date))+
+  geom_point()
 
+```
+aggregé les données par semaine pour avoir un jeux de données moins chaotique
 
+```{r}
+nrow(data_modifie)/7
+data7=data.frame()
+groupes = rep(1:ceiling(nrow(data_modifie) / 7), each = 7, length.out = nrow(data_modifie))
+groupes
+data7=aggregate(. ~ groupes, data = data_modifie, FUN = sum)
+data7
 
+ggplot(data=data7,aes(x=1:nrow(data7),y=E))+
+  geom_point()
+```
 
-
-
+analyser les données selon les heures d'influences, aux heures avec le plus de circulation,
+la situation s'est elle améliorée.
 
 
 
