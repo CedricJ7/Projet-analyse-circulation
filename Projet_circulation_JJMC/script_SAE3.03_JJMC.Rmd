@@ -1,0 +1,1105 @@
+---
+title: "SAE_description_prevision_donnees_temporelles"
+author: "Yobo Jimmy, Challet Marie, Jestin Cédric, Baleydier Jehanne"
+date: "2023-11-07"
+output:
+  html_document:
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
+    toc_float: yes
+---
+
+```{r, echo=FALSE, include=FALSE}
+# mettez votre chemin vers le répertoire contenant le document
+#setwd("~/BUT SD/semestre 3/serie_chronologique/sae/projet/")
+```
+
+```{r, echo=FALSE, include=FALSE}
+library(lubridate)
+library(dplyr)
+library(ggplot2)
+library(plotly)
+library(tidyverse)
+library(zoo)
+library(forecast)
+library(gridExtra)
+library(gap)
+```
+
+# ***Chargement du jeu de données, mise en forme et aperçu des données***
+
+Le premier jeux de données celui qui correspond au fichier CSV s'appelera "d".
+
+```{r}
+d <- read.csv("C:/Users/Cédric/Downloads/route_intersection.csv")
+```
+
+Transformation des dates et heures dans le bon format pour pouvoir les traiter.
+
+```{r}
+d$date <- ymd_hms(d$date)
+```
+
+Nous faisons tout de suite une transformation de notre jeux de données pour avoir un tableau avec pour chaque date et heure toutes les informations sur les différentes intersections dans une colonne différente.
+
+```{r}
+data <- d %>% mutate(
+  I1 = ifelse(intersection == "I1", as.integer(vehicule), NA),
+    S1 = ifelse(intersection == "S1", as.integer(vehicule), NA),
+    I2 = ifelse(intersection == "I2", as.integer(vehicule), NA),
+    S2 = ifelse(intersection == "S2", as.integer(vehicule), NA),
+    I3 = ifelse(intersection == "I3", as.integer(vehicule), NA),
+    S3 = ifelse(intersection == "S3", as.integer(vehicule), NA),
+    I4 = ifelse(intersection == "I4", as.integer(vehicule), NA),
+    S4 = ifelse(intersection == "S4", as.integer(vehicule), NA),
+    N = ifelse(intersection == "N", as.integer(vehicule), NA)
+  ) %>%
+  group_by(date) %>%
+  summarize(
+    I1 = sum(I1, na.rm = TRUE),
+    S1 = sum(S1, na.rm = TRUE),
+    I2 = sum(I2, na.rm = TRUE),
+    S2 = sum(S2, na.rm = TRUE),
+    I3 = sum(I3, na.rm = TRUE),
+    S3 = sum(S3, na.rm = TRUE),
+    I4 = sum(I4, na.rm = TRUE),
+    S4 = sum(S4, na.rm = TRUE),
+    N = sum(N, na.rm = TRUE)
+  ) %>%
+  ungroup()
+```
+
+## *Calcul des données d'entrées*
+
+Calcul des données d'entrées :
+
+```{r}
+t0=which(data$date=="2017-01-01 00:00:00")
+n <- length(data$date)
+data$E1<-data$I1+data$S2-data$I2
+data$E2<-data$I2+data$S3-data$I3
+data$E3 <- NA
+data$E3[1:t0-1] <-data$I3[1:t0-1] - data$N[1:t0-1]
+data$E3[t0:n] <- data$I3[t0:n] +data$S4[t0:n] -data$I4[t0:n] 
+data$E4 <- NA
+data$E4[t0:n]<-data$I4[t0:n]-data$N[t0:n]
+
+```
+
+On regarde de manière générale la circulation sur l'ensemble des intersections
+
+```{r}
+data$somme <- rowSums(data[, c("E1", "E2", "E3", "E4", "N")], na.rm = TRUE)
+```
+
+
+## *Regroupement des données par jour*
+```{r}
+data_journaliere <- d
+data_journaliere$date <- as.Date(data_journaliere$date)
+data_journaliere <- data_journaliere %>% mutate(
+  I1 = ifelse(intersection == "I1", as.integer(vehicule), NA),
+    S1 = ifelse(intersection == "S1", as.integer(vehicule), NA),
+    I2 = ifelse(intersection == "I2", as.integer(vehicule), NA),
+    S2 = ifelse(intersection == "S2", as.integer(vehicule), NA),
+    I3 = ifelse(intersection == "I3", as.integer(vehicule), NA),
+    S3 = ifelse(intersection == "S3", as.integer(vehicule), NA),
+    I4 = ifelse(intersection == "I4", as.integer(vehicule), NA),
+    S4 = ifelse(intersection == "S4", as.integer(vehicule), NA),
+    N = ifelse(intersection == "N", as.integer(vehicule), NA)
+  ) %>%
+  group_by(date) %>%
+  summarize(
+    I1 = max(I1, na.rm = TRUE),
+    S1 = max(S1, na.rm = TRUE),
+    I2 = max(I2, na.rm = TRUE),
+    S2 = max(S2, na.rm = TRUE),
+    I3 = max(I3, na.rm = TRUE),
+    S3 = max(S3, na.rm = TRUE),
+    I4 = ifelse(all(is.na(I4)), 0, max(I4, na.rm = TRUE)),
+    S4 = ifelse(all(is.na(S4)), 0, max(S4, na.rm = TRUE)),
+    N = max(N, na.rm = TRUE)
+  ) %>%
+  ungroup()
+
+t0_jour=which(data_journaliere$date=="2017-01-01")
+n <- length(data_journaliere$date)
+data_journaliere$E1 <- data_journaliere$I1 + data_journaliere$S2 - data_journaliere$I2
+data_journaliere$E2 <- data_journaliere$I2 + data_journaliere$S3 - data_journaliere$I3
+data_journaliere$E3 <- NA
+data_journaliere$E3[1:t0_jour-1] <- data_journaliere$I3[1:t0_jour-1] - data_journaliere$N[1:t0_jour-1]
+data_journaliere$E3[t0_jour:n] <- data_journaliere$I3[t0_jour:n] + data_journaliere$S4[t0_jour:n] - data_journaliere$I4[t0_jour:n] 
+data_journaliere$E4 <- NA
+data_journaliere$E4[t0_jour:n] <- data_journaliere$I4[t0_jour:n]-data_journaliere$N[t0_jour:n]
+data_journaliere$somme <- rowSums(data_journaliere[, c("E1", "E2", "E3", "E4", "N")], na.rm = TRUE)
+```
+
+## *Regroupement des données par mois*
+```{r}
+data_mois = data_journaliere %>% 
+  mutate(month = format(date, "%Y-%m")) %>%
+  group_by(month) %>%
+  summarize(
+    I1 = sum(I1, na.rm = TRUE),
+    S1 = sum(S1, na.rm = TRUE),
+    I2 = sum(I2, na.rm = TRUE),
+    S2 = sum(S2, na.rm = TRUE),
+    I3 = sum(I3, na.rm = TRUE),
+    S3 = sum(S3, na.rm = TRUE),
+    I4 = sum(I4, na.rm = TRUE),
+    S4 = sum(S4, na.rm = TRUE),
+    N = sum(N, na.rm = TRUE),
+    E1 = sum(E1),
+    E2 = sum(E2),
+    E3 = sum(E3),
+    E4 = sum(E4,na.rm=T), 
+    somme = sum(somme, na.rm = TRUE)
+  )
+```
+
+## *Observation générale des données*
+
+```{r}
+ggplot(data, aes(date,somme)) +
+  geom_point()
+```
+
+On peut déjà remarquer une augmentation de la circulation de manière générale sur l'ensemble des intersections.
+
+
+```{r}
+summary(data_journaliere)
+```
+```{r}
+mean(data_journaliere$I1)>sum(mean(data_journaliere$I2)+mean(data_journaliere$I3)+mean(data_journaliere$I4))
+```
+
+Si l'on observe bien les colonnes on peut voir que I1 est l'intersection avec le nombre moyen de véhicule par jour le plus élevé, ce nombre est même supérieur à la somme des moyennes (journalières) de I2,I3,I4. Nous en reparlerons dans le rapport ...
+
+
+Ici nous avons réalisé un modèle multiplicatif à l'aide de la fonction decompose.
+
+On a un ggplot avec des résidus en couleur et un modèle qui suit les données assez bien.
+
+PS: les résidus semblent incorrects
+
+```{r modele2 , echo=FALSE,warning=FALSE,include=T}
+data$somme <- ts(data$somme,frequency = 24)
+res_decompose <- decompose(data$somme,type="multiplicative") 
+data$fitted <- as.numeric(res_decompose$trend*res_decompose$seasonal)
+data$fitted[nrow(data)]
+
+data$residu = data$somme - data$fitted # / ???
+
+q=quantile(probs=0.99,data$residu,na.rm = TRUE)
+
+index=which(data$residu > q)
+
+data$anomalie <- ifelse(data$somme %in% data$somme[index], TRUE, FALSE)
+
+ggplot(data = data, aes(date, somme,color=anomalie))+
+  geom_point()+
+  geom_line(aes(y = fitted), col = "red")+
+  xlim(c(as.POSIXct("2017-01-01"),as.POSIXct("2017-01-17")))
+
+```
+Ici nous avons cherché à observer la tendance globale sur les entrées (E1, E2, E3) avec un simple modèle linéaire : 
+
+```{r,echo=FALSE,warning=FALSE,include=TRUE}
+ggplot(data=data_journaliere,aes(y=somme,x=date))+
+  geom_point(color="purple")+
+  labs(title="Augmentation du nombre d'entrée globale",
+       x="Date",
+       y="Totales des entrées de véhicules (Somme)",
+       color="Intersection")+
+  geom_smooth(method="lm", col = "black")
+```
+
+## *Jours de la semaine / Week-end.*
+
+Nous avons eu l'intuition de regarder différemment les jours de la semaine et les week-ends parce qu'en observant plus précisemment les données on se rend compte qu'il y a moins de circulation pendant les week-end, alors pour mettre en place une période il nous a semblé pertinent de séparer les deux.
+
+Voici le graphique qui nous a permis de déduire cela : 
+```{r}
+plot_ly(data[0:500,], x = ~date, y = ~somme, type = 'scatter', mode = 'markers')
+```
+On temarque bien que les données pour les week-end sont plus basses.
+
+```{r}
+data$jour <- weekdays(data$date)
+week_end <- which(data$jour == "samedi" | data$jour == "dimanche")  
+data$week_end <- FALSE
+data$week_end[week_end] <- TRUE
+```
+
+Aperçu avec un graphique.
+```{r}
+ggplot(data, aes(date, somme, color = week_end)) +
+  geom_line() +
+  ggtitle("Données en fonction des jours de la semaine")
+```
+On observe bien la différence, on voit bien que les valeurs sont plus faibles pour les week-end. 
+Cependant en reprenant le dernier graphique nous voyons bien qu'il y a une période beaucoup plus marquée par semaine que par jour. 
+
+
+## *Données de l'intersection 1*
+
+```{r}
+ggplot(data = data, aes(date, I1)) +
+  geom_line(aes(color = "I1"), linetype = "solid") +
+  geom_line(aes(y = E1, color = "E1"), linetype = "solid") +
+  geom_line(aes(y = S1, color = "S1"), linetype = "solid") +
+  scale_color_manual(values = c("I1" = "lightskyblue3", "E1" = "indianred", "S1" = "khaki3" )) +
+  ggtitle("Intersection 1")
+```
+
+On remarque que les données de I1 sont plus élevé que celle de E1 mais que cela suit la même tendance. On peut aussi remarquer qu'il y a beaucoup plus d'entrées que de sorties dans cette intersection.
+
+## *Donnnées de l'intersection 2*
+
+```{r}
+ggplot(data = data, aes(date,I2)) +
+  geom_line(aes(color = "I2")) +
+  geom_line(aes(y=E2, color ="E2")) +
+  geom_line(aes(y = S2, color = "S2")) +
+  scale_color_manual(values = c("I2" = "lightskyblue3", "E2" = "indianred", "S2" = "khaki3" )) +
+  ggtitle("Intersection 2")
+```
+
+Sur ce graphique on observe beaucoup mieux la cassure et de même que le graphique pour l'intersection 1 on remarque que peut importe si c'est l'entrée, la sortie, les données suivent le même modèle.
+
+## *Données de l'intersection 3*
+
+```{r}
+ggplot(data = data, aes(date,I3)) +
+  geom_line(aes(color = "I3")) +
+  geom_line(aes(y=E3, color ="E3")) +
+  geom_line(aes(y = S3, color = "S3")) +
+  scale_color_manual(values = c("I3" = "lightskyblue3", "E3" = "indianred", "S3" = "khaki3" )) +
+  ggtitle("Intersection 3")
+```
+
+Il n'ya a pas vraiment de tendance globale pour ce graphique, c'est une osillation perpétuelle peut-être peut-on trouver une périodicié mais cela ne semble par régulier. On pourra quand même calculer la tendance linéaire pour avoir une tendance générale, plutôt d'augmentation ou de diminution.
+
+## *Données de l'intersection 4 (à partir du 1er janvier 2017)*
+
+```{r}
+ggplot(data = data[t0:length(data$date),], aes(date,I4)) +
+  geom_line(aes(color = "I4")) +
+  geom_line(aes(y=E4, color ="E4")) +
+  geom_line(aes(y = S4, color = "S4")) +
+  scale_color_manual(values = c("I4" = "lightskyblue3", "E4" = "indianred", "S4" = "khaki3" )) +
+  ggtitle("Intersection 4")
+```
+On observe une augmentation progressive. Puis cela semble stagner.
+
+
+# ***Lissage et modélisation sur les données par jour de chaque intersection : ***
+
+## *Intersection 1*
+
+Tests série différence, normalisation pas très intéressant
+
+### **Moyenne mobile**
+
+Nous avons choisi un k grand parce qu'il y a beaucoup de données.
+La barre verticale bleue correspond à l'ouverture de la 4e intersection.
+```{r}
+k <- 50
+res_rollmean_E1 <- rollmean(data$E1,k = 2*k+1)
+res_rollmean_E1 <- c(rep(NA,k),res_rollmean_E1,rep(NA,k))
+ggplot(data,aes(x=date,y=E1)) +
+  geom_point(size = 0.5, col = "grey") +
+  geom_line(aes(y=res_rollmean_E1),col="red",size=0.5) + 
+  geom_line(aes(x=data$date[t0]), col = "blue") +
+  ggtitle("Moyenne mobile pour l'intersection 1")
+```
+
+On peut observer une tendance à la hausse jusqu'au premier janvier 2017 et ensuite les données semblent plutôt stagner.
+
+
+### **Lissage exponentielle simple :**
+
+```{r}
+res_ses_E1 <- ses(data$E1,alpha = .1,initial = "simple")
+res_lissage_exp_E1 <- res_ses_E1$fitted
+ggplot(data, aes(date, E1)) +
+  geom_point(size = 0.5, col = "grey") +
+  geom_line(aes(y = res_lissage_exp_E1), size = 0.5, col = "red") +
+  geom_line(aes(x=data$date[t0]), col = "blue") +
+  ggtitle("Lissage exponentiel simple pour l'intersection 1")
+
+```
+
+Le lissage exponentiel ne nous apprend rien de plus. On peut essayer d'en faire un double.
+
+### **Lissage exponentiel double :**
+
+```{r}
+res_ses_double_E1 <- ses(res_lissage_exp_E1,alpha = .1,initial = "simple")
+res_lissage_exp_double_E1 <- res_ses_double_E1$fitted
+ggplot(data, aes(date, E1)) +
+  geom_point(size = 0.5, col = "grey") +
+  geom_line(aes(y = res_lissage_exp_double_E1), size = 0.5, col = "red") +
+  geom_line(aes(x=data$date[t0]), col = "blue") +
+  ggtitle("Lissage exponentiel double pour l'intersection 1")
+```
+
+On voit peut-être mieux le côté étalement des données.
+
+Pour les modélisations nous avons essayés le modèle multiplicatif parce que c'est celui qui ressemble le mieux aux données :
+Nous avons choisi une fréquence de 24 pour les 24 heures d'une journée.
+
+### **Tendance linéaire**
+
+Essayons de modéliser une tendance linéaire pour avoir un aperçu génréral de l'augmentation des données.
+```{r}
+attach(data)
+res_lm_E1 <- lm(E1~date)
+ggplot(data, aes(date,E1)) +
+  geom_point(size = 0.5,col = "grey") +
+  geom_line(aes(y = res_lm_E1$fitted.values), col = "red") +
+  geom_line(aes(x=data$date[t0]), col = "blue") +
+  ggtitle("Tendance linéaire sur l'intersection 1")
+```
+On le voyait déjà avant mais les chiffres parlent bien il y a bien une augmentation générale des données. 
+
+### **Tendance linéaire avant et après l'ouverture de la 4e intersection :**
+
+Pour cela séparons le jeux de données : 
+```{r}
+n <- nrow(data)
+data_avant <- data[0:t0,]
+data_apres <- data[(t0+1):n,]
+```
+
+mettons en place les deux modèles
+```{r, include=FALSE}
+attach(data_avant)
+res_lm_1_E1 <- lm(E1~date)
+data_avant$tend_E1 <- res_lm_1_E1$fitted.values
+```
+
+```{r, include=FALSE}
+attach(data_apres)
+res_lm_2_E1 <- lm(E1~date)
+data_apres$tend_E1 <- res_lm_2_E1$fitted.values
+```
+
+Valeur dans 'data' :
+```{r}
+data$tend_E1 <- NA
+data$tend_E1[0:t0] <- data_avant$tend_E1
+data$tend_E1[(t0+1):n] <- data_apres$tend_E1
+```
+
+
+Visualisation
+```{r}
+ggplot(data, aes(date, E1)) +
+  geom_point(col = "grey") +
+  geom_line(aes(y = data$tend_E1), col = "red") +
+  geom_line(aes(x=data$date[t0]), col = "blue") +
+  ggtitle("Tendance linéaire avant et après l'ouverture de la 4e intersection")
+```
+On observe bien une différence d'augmentation des données. 
+
+
+### **Modèle multiplicatif.**
+
+```{r}
+data$E1_ts <- ts(data$E1,frequency = 24)
+res_decompose_E1 <- decompose(data$E1_ts,type="multiplicative")
+data$fitted <- as.numeric(res_decompose_E1$trend*res_decompose_E1$seasonal)
+ggplot(data = data, aes(date, E1))+
+  geom_line()+
+  geom_line(aes(y = fitted), col = "red") +
+  geom_line(aes(x=data$date[t0]), col = "blue") +
+  ggtitle("Modèle multiplicatif pour l'intersection 1")
+
+```
+On voit bien ici que la modélisation avec un modèle multiplicatif correspond bien aux données mais la fonction 'decompose' de R se base sur la moyenne mobile donc on n'obtient pas un modèle très propre mais plutôt un lissage.
+Cependant ce modèle s'adapte très bien aux données.
+
+
+Nous avons aussi essayé de créer nous même un modèle multiplicatif : 
+```{r}
+modele_multi <- function(serie_vehicule,serie_date,p){
+  logar=lm(log(serie_vehicule)~serie_date) 
+  detendance=logar$residuals
+  logar_fitted=logar$fitted.values
+  
+  n <- length(detendance)
+  
+  N <- floor(n/p)
+  
+  periode <- rep(NA,p)
+  
+  for(i in 1:p){
+    # Calculer la moyenne de chacune des étapes de l’ensemble des périodes
+    periode[i] <- mean(detendance[i+(1:(N+1)-1)*p],na.rm=T)
+  }
+  if(n == N*p) periode <- rep(periode,N)
+  
+  if(n > N*p) periode <- c(rep(periode,N),periode[1:(n-(N*p))])
+
+  modele <- exp(periode) * exp(logar_fitted)
+  
+  residu <- serie_vehicule - modele #problème avec résidu
+  
+  tableau <- data.frame(modele, residu)
+  return(tableau)
+}
+
+```
+
+Nous l'avons tester sur les données :
+```{r}
+mod_multiplicatif_E1 <- modele_multi(data$E1, data$date,24)
+```
+```{r}
+ggplot(data, aes(date, E1)) +
+  geom_point(size = 0.5, col = "grey") +
+  geom_line(aes(y = mod_multiplicatif_E1$modele), col = "red") +
+  geom_line(aes(x=data$date[t0]), col = "blue") +
+  ggtitle("Autre modèle multiplicatif")
+```
+Le modèle correspond plutôt bien aux données, mais nous n'avons un problème avec les résidus.
+C'es pour cela que dans la suite nous avons préféré nous concentrer sur les données par jour plutôt que par heure.
+
+## *Intersection 2 :*
+
+```{r}
+ggplot(data, aes(date, E2)) + geom_point(size = 0.5, col = "grey") +
+  geom_line(aes(x=data$date[t0]), col = "blue") +
+  ggtitle("Données de l'intersection 2")
+```
+Les données parraissent étonantes dans un premier temps mais c'est en fait parce que l'échelle est petite, il y peut de voitures en moyenne qui passent par l'intersection 2.
+
+### **Moyenne mobile**
+```{r}
+k <- 50
+res_rollmean_E2 <- rollmean(data$E2,k = 2*k+1)
+res_rollmean_E2 <- c(rep(NA,k),res_rollmean_E2,rep(NA,k))
+ggplot(data,aes(x=date,y=E2)) +
+  geom_point(size = 0.5, col = "grey") +
+  geom_line(aes(y=res_rollmean_E2),col="red",size=0.5) + 
+  geom_line(aes(x=data$date[t0]), col = "blue") +
+  ggtitle("Moyenne mobile sur l'intersection 1")
+```
+On peut ainsi observer la tendance globale, on voit très nettement une cassure dans les données ici. 
+
+### **Lissage exponentiel simple**
+```{r}
+res_ses_E2 <- ses(data$E2,alpha = .1,initial = "simple")
+res_lissage_exp_E2 <- res_ses_E2$fitted
+ggplot(data, aes(date, E2)) +
+  geom_point(size = 0.5, col = "grey") +
+  geom_line(aes(y = res_lissage_exp_E2), size = 0.5, col = "red") +
+  geom_line(aes(x=data$date[t0]), col = "blue") +
+  ggtitle("Lissage exponentiel sur les données E2")
+```
+Cela nous apprend pas grand chose de plus. La moyenne mobile semble un peu plus significative. On peut jsute dire qu'il y a un étalement des données après la date de l'ouverture de la dernière intersection. 
+
+### **Tendance linéaire**
+
+Comme pour l'intersection I1 nous allons regarder la tendance linéaire.
+```{r}
+attach(data)
+res_lm_E2 <- lm(E2~date)
+ggplot(data, aes(date,E2)) +
+  geom_point(col = "grey") +
+  geom_line(aes(y = res_lm_E2$fitted.values), col = "red") +
+  geom_line(aes(x=data$date[t0]), col = "blue") +
+  ggtitle("Tendance linéaire intersection 2")
+```
+Contrairement à l'intersection 1 on se rend bien compte que ce modèle modélise très mal les données.
+```{r}
+plot(res_lm_E2$residuals, type ="p")
+abline(h=0, col = "red")
+```
+On remarque bien qu'il y a un moment où les résidus passent tous en dessous de 0, ce qui est le signe d'une cassure. 
+
+Essayons de modéliser séparement avant et après 1er janvier 2017.
+
+```{r, include=FALSE}
+attach(data_avant)
+res_lm_1_E2 <- lm(E2~date)
+data_avant$tend_E2 <- res_lm_1_E2$fitted.values
+```
+```{r, include=FALSE}
+attach(data_apres)
+res_lm_2_E2 <- lm(E2~date)
+data_apres$tend_E2 <- res_lm_2_E2$fitted.values
+```
+
+Valeur dans 'data' :
+```{r}
+data$tend_E2 <- NA
+data$tend_E2[0:t0] <- data_avant$tend_E2
+data$tend_E2[(t0+1):n] <- data_apres$tend_E2
+```
+
+
+Visualisation
+```{r}
+ggplot(data, aes(date, E2)) +
+  geom_point(col = "grey") +
+  geom_line(aes(y = data$tend_E2), col = "red")
+```
+On voit très bien la cassure ici. Nous avons donc une augmentation plus importante de la circulation après la mise en place de la nouvelle intersection qu'avant. Mais avec un étalement des données, une plus grande répartition.
+
+## *Intersection 3*
+
+En observant les données de l'intersection 3 on voit déjà une échelle beaucoup plus grande et un graphique qui ne ressemble pas du tout aux précédents.
+
+### **Moyenne mobile**
+```{r}
+k <- 50
+res_rollmean_E3 <- rollmean(data$E3,k = 2*k+1)
+res_rollmean_E3 <- c(rep(NA,k),res_rollmean_E3,rep(NA,k))
+ggplot(data,aes(x=date,y=E3)) +
+  geom_point(size = 0.5, col = "grey") +
+  geom_line(aes(y=res_rollmean_E3),col="red",size=0.5) + 
+  geom_line(aes(x=data$date[t0]), col = "blue") +
+  ggtitle("Moyenne mobile pour l'intersection 3")
+```
+Tendance qui a plutôt l'air de stagner mais avec un très fort déséquilibre entre les données. De plus nous n'avons pas l'impression d'observer un modèle qui se répète il parait difficile de mettre en place un périodicité. 
+
+### **Lissage exponentiel simple**
+Peut-être que le lissage exponentiel peut nous en apprendre un peu plus.
+```{r}
+res_ses_E3 <- ses(data$E3,alpha = .1,initial = "simple")
+res_lissage_exp_E3 <- res_ses_E3$fitted
+ggplot(data, aes(date, E3)) +
+  geom_point(size = 0.5, col = "grey") +
+  geom_line(aes(y = res_lissage_exp_E3), size = 0.5, col = "red") +
+  geom_line(aes(x=data$date[t0]), col = "blue") +
+  ggtitle("Lissage exponentiel pour l'intersection 3")
+```
+Il n'y a pas beaucoup de différence. 
+
+### **Tendance linéaire**
+Observons la tendance linéaire pour visualiser de manière générale une potentielle augmentation ou diminution de la circulation : 
+```{r}
+attach(data)
+res_lm_E3 <- lm(E3~date)
+ggplot(data, aes(date,E3)) +
+  geom_point(col = "grey", size = 0.5) +
+  geom_line(aes(y = res_lm_E3$fitted.values), col = "red") +
+  geom_line(aes(x=data$date[t0]), col = "blue") +
+  ggtitle("Tendance linéaire pour l'intersection 3")
+```
+Il semble y avoir une légère augmentation générale. Comme précédemment on peut essayer de regarder avant et après la mise en place de la dernière intersection. 
+
+```{r, include=FALSE}
+attach(data_avant)
+res_lm_1_E3 <- lm(E3~date)
+data_avant$tend_E3 <- res_lm_1_E3$fitted.values
+attach(data_apres)
+res_lm_2_E3 <- lm(E3~date)
+data_apres$tend_E3 <- res_lm_2_E3$fitted.values
+data$tend_E3 <- NA
+data$tend_E3[0:t0] <- data_avant$tend_E3
+data$tend_E3[(t0+1):n] <- data_apres$tend_E3
+```
+```{r}
+ggplot(data, aes(date, E3)) +
+  geom_point(col = "grey", size = 0.5) +
+  geom_line(aes(y = data$tend_E3), col = "red") +
+  geom_line(aes(x=data$date[t0]), col = "blue") +
+  ggtitle("Tendance linéaire avant et après l'ouverture de l'intersection 4 pour les données de la 3e")
+```
+Alors c'est très intéressant parce qu'après la mise en place de la 4e intersection les données semblent plutôt diminuer !
+
+### **Analyse des résidus :**
+
+Analysons les résidus de ces deux tendances tendances linéaires pour voir si l'on observe pas quelques chose : 
+```{r}
+plot(res_lm_1_E3$residuals)
+```
+```{r}
+plot(res_lm_2_E3$residuals)
+```
+Rien de réellement intéressant, nous verrons avec les données par jour.
+
+## *Intersection I4*
+
+### **Moyenne mobile**
+```{r}
+k <- 50
+res_rollmean_E4 <- rollmean(data$E4[t0:n],k = 2*k+1)
+res_rollmean_E4 <- c(rep(NA,k),res_rollmean_E4,rep(NA,k))
+ggplot(data[t0:n,],aes(x=date,y=E4)) +
+  geom_point(size = 0.5, col = "grey") +
+  geom_line(aes(y=res_rollmean_E4),col="red",size=0.5) + 
+  geom_line(aes(x=data$date[t0]), col = "blue") +
+  ggtitle("Moyenne mobile pour l'intersection 4")
+```
+On observe bien une légère augmentation au début et puis les données commences à stager. 
+
+### **Lissage exponentiel simple**
+```{r}
+res_ses_E4 <- ses(data$E4[t0:n],alpha = .1,initial = "simple")
+res_lissage_exp_E4 <- res_ses_E4$fitted
+ggplot(data[t0:n,], aes(date, E4)) +
+  geom_point(size = 0.5, col = "grey") +
+  geom_line(aes(y = res_lissage_exp_E4), size = 0.5, col = "red") +
+  geom_line(aes(x=data$date[t0]), col = "blue") +
+  ggtitle("lissage exponentiel pour l'intersection 4")
+```
+Peu d'informations en plus par rapport à la moyenne mobile.
+
+### **Tendance linéaire**
+```{r, warning=FALSE}
+attach(data[t0:n,])
+res_lm_E4 <- lm(E4~date)
+ggplot(data[t0:n,], aes(date,E4)) +
+  geom_point(col = "grey", size = 0.5) +
+  geom_line(aes(y = res_lm_E4$fitted.values), col = "red") +
+  geom_line(aes(x=data$date[t0]), col = "blue") +
+  ggtitle("Tendance linéaire pour l'intersection 4")
+```
+
+## *Conclusion*
+Nous avons eu un aperçu général des données, nous avons commencé à voir qu'il y a certainement une cassure au niveau de l'apparition de la dernière intersection pour les trois premières intersections. Pour continuer cette analyse afin de la rendre plus facile nous avons travaillé sur les données par jour afin de pouvoir dégager une potentiel période de 7 jours et pour avoir un meilleur aperçu avec moins de données. 
+
+# ***Graphique sur l'ensemble des données***
+
+## *La moyenne mobile par jour*
+
+Création de colonnes pour mettre la moyenne mobile
+
+```{r}
+k <- 3
+data_journaliere$rmean_E1 <- rollmean(data_journaliere$E1, k = 2*k+1, fill = NA)
+data_journaliere$rmean_E2 <- rollmean(data_journaliere$E2, k = 2*k+1, fill = NA)
+data_journaliere$rmean_E3 <- rollmean(data_journaliere$E3, k = 2*k+1, fill = NA)
+data_journaliere$rmean_somme =  rollmean(data_journaliere$somme, k = 2*k+1, fill = NA)
+```
+
+Visualisation : 
+Avec ou sans points : 
+```{r}
+ggplot(data=data_journaliere, aes(x=date)) +
+  geom_line(aes(y=rmean_E1, color="E1"), size=1) +
+  geom_line(aes(y=rmean_E2, color="E2"), size=1) +
+  geom_line(aes(y=rmean_E3, color="E3"), size=1) +
+  geom_point(aes(y=E1, color="E1"), size=0.2, alpha=0.5) +
+  geom_point(aes(y=E2, color="E2"), size=0.2, alpha=0.5) +
+  geom_point(aes(y=E3, color="E3"), size=0.2, alpha=0.5) +
+  labs(title="Moyennes Mobiles (k=10) et Points des Variables E1, E2 et E3",
+       x="Date",
+       y="Valeur") +
+  scale_color_manual(values=c("E1"="blue", "E2"="green", "E3"="red")) +
+  theme_minimal()+
+  ylim(0,100)+
+  geom_vline(xintercept=as.Date("2017-01-01"), linetype="dashed", color="black")
+
+ggplot(data=data_journaliere, aes(x=date)) +
+  geom_line(aes(y=rmean_E1, color="E1"), size=1) +
+  geom_line(aes(y=rmean_E2, color="E2"), size=1) +
+  geom_line(aes(y=rmean_E3, color="E3"), size=1) +
+  labs(title="Moyennes Mobiles (k=10) et Points des Variables E1, E2 et E3",
+       x="Date",
+       y="Valeur") +
+  scale_color_manual(values=c("E1"="blue", "E2"="green", "E3"="red")) +
+  theme_minimal()+
+  ylim(0,100)+
+  geom_vline(xintercept=as.Date("2017-01-01"), linetype="dashed", color="black")
+```
+On remarque que c'est l'entrée 1 qui est la plus engorgée.
+
+Sur l'ensemble des données la colonne 'somme' : 
+```{r}
+ggplot(data=data_journaliere,aes(x=date))+
+  geom_point(aes(y=somme),color="purple",size=0.9)+
+  geom_line(aes(y=rmean_somme),size=0.6)+
+  ylim(0,150)+ labs(title="Moyennes Mobiles (k=3) sur somme",
+       x="Date",
+       y="Valeur")
+```
+
+## *Modèle multiplicatif*
+Ici on exploite la fonction modele_multi afin de calculer un modèle multiplicatif puis on le représente graphiquement.
+
+La période tester ici est de 24 heures sur les données par heure donc data
+
+```{r,echo=FALSE,include=TRUE,warning=FALSE}
+#modèle multiplicatif (2)
+m=modele_multi(data$somme,data$date,24)
+r=unlist(m[2])
+mm=unlist(m[1])
+
+ggplot(data=data,aes(x=date,y=somme))+
+  geom_point(color="purple")+
+  geom_line(aes(y=mm),color="black")+
+   geom_vline(xintercept=as.POSIXct("2017-01-01"),  color="red")+
+   labs(title="Modèle multiplicatif sur une période de 24 heures",
+       x="Date",
+       y="Nombre véhicules") +
+  theme_minimal()+
+  ylim(0,150)+
+  xlim(c(as.POSIXct("2016-12-20"),as.POSIXct("2017-01-12")))
+
+```
+
+Ici la meme chose mais le graphique à une échelle "dézoomer" sur toute la période étudier
+
+```{r,echo=FALSE,include=T,warning=FALSE}
+m1=modele_multi(data$somme,data$date,24)
+r1=unlist(m1[2])
+mm1=unlist(m1[1])
+#mm
+
+ggplot(data=data,aes(x=date))+
+  geom_point(aes(y=somme))+
+  geom_line(aes(y=mm1),color="purple")
+  
+
+```
+
+
+Nous avons tenté un modèle linéaire sur l'ensemble des données, c'est une régression linéaire sur les résidus d'une regression linéaire. L'idée ici était de voir si en enlevant la tendance globale d'augmentation de circulation on pouvait observer une baisse (relative) liée à l'introduction de la nouvelle intersection I4. 
+Finalement l'approche ne nous a pas semblé très concluante...
+
+```{r,echo=FALSE,include=T,warning=FALSE}
+somme_detendance=lm(data_journaliere$somme~data_journaliere$date)$residuals
+E1_detendance=lm(data_journaliere$E1~data_journaliere$date)$residuals
+E2_detendance=lm(data_journaliere$E2~data_journaliere$date)$residuals
+E3_detendance=lm(data_journaliere$E3~data_journaliere$date)$residuals
+
+
+ggplot(data=data_journaliere,aes(y=somme_detendance,x=date))+
+  geom_point(size=0.3)+
+  geom_smooth(method="lm",color="green")
+  
+```
+
+# ***Modélisation pour I1***
+
+## *Modèle additif*
+
+En regroupant les données par jour cela nous permet de modéliser les données E1 avec un modèle additif, étant donné que le modèle multiplicatif ne nous permet pas de faire des prévision. 
+
+```{r}
+calcul_periodicite <- function(serie,p){
+n <- length(serie)
+N <- floor(n/p)
+periode <- rep(NA,p)
+for(i in 1:p){
+periode[i] <- mean(serie[i+(1:(N+1)-1)*p],na.rm=T)
+}
+if(n == N*p) periode <- rep(periode,N)
+if(n > N*p) periode <- c(rep(periode,N),periode[1:(n-(N*p))])
+return(periode)
+}
+```
+
+```{r}
+res_lm_E1 <- lm(data_journaliere$E1~data_journaliere$date)
+E1_detendance <- res_lm_E1$residuals 
+periode_E1 <- calcul_periodicite(E1_detendance, 7)
+data_journaliere$modele_additif_E1 <- res_lm_E1$fitted.values + periode_E1
+```
+
+Visualisation : 
+```{r}
+ggplot(data_journaliere, aes(date, E1)) +
+  geom_point(size = 0.5) +
+  geom_line(aes(y = modele_additif_E1), col = "red")
+```
+On peut voir que ça modélise plutôt pas trop mal les données. Analysons maintenant les résidus pour voir les anomalie.
+
+## *Anomalies*
+
+```{r}
+residus <- data_journaliere$E1 - data_journaliere$modele_additif_E1
+```
+
+Regardons maintenant par rapport aux quantiles : 
+```{r}
+q1 = quantile(probs = 0.99, residus, na.rm = TRUE)
+index=which(residus > q1)
+data_journaliere$anomalie <- ifelse(data_journaliere$E1 %in% data_journaliere$E1[index], TRUE, FALSE)
+
+ ggplot(data_journaliere,aes(x = date,y = E1,color=anomalie))+
+   geom_point()+
+   geom_line(aes(y=modele_additif_E1), col = "red") +
+   geom_vline(xintercept=as.Date("2017-01-01"), linetype="dashed", color="black")+
+  labs(title="Modèle additif sur une période de 7 jours",
+       x="Date",
+       y="Nombre véhicules") 
+
+```
+On observe qu'il y a plus d'anomalies après l'ouverture d'I4.
+
+## *Cassure test de Chow*
+Nous avons cherché à confirmer l'hypothèse que les données modéliser précedemment présente une cassure "significative".
+On utilisera la fonction chow.test() du package gap.
+
+Pour cela nous avons réalisé un test de chow en séparant les données avant l'introduction d'I4 : soit avant t0_jour = "2017-01-01"
+et les données après cette date. En utilisant encore un modèle additif (période= 7j)...
+
+Le test est concluant puisque la statistique de test est non comprise dans la région de test adpatée à nos données (degré de liberté 1 et 2) avec un risque de 5% (de quantile fisher(paramètres) à +Inf)
+
+```{r}
+t0_jour=which(data_journaliere$date=="2017-01-01")
+n <- length(data_journaliere$date)
+
+tendance_E1_1=lm(data_journaliere$E1[1:t0_jour]~data_journaliere$date[1:t0_jour])$fitted
+tendance_E1_2=lm(data_journaliere$E1[t0_jour:n]~data_journaliere$date[t0_jour:n])$fitted
+
+
+res_chow<- chow.test(tendance_E1_1,data_journaliere$date[1:t0_jour],tendance_E1_2,data_journaliere$date[t0_jour:n])
+k=2
+f=c(qf(0.95,df1=k,df2=(length(tendance_E1_2)+length(tendance_E1_1)+2*k)),Inf)
+if (res_chow[1] > f[1]){
+  print(TRUE)
+} else {
+  print(FALSE)
+}
+```
+La cassure n'étant confirmé par le test ci-dessus, nous avons fait des prédictions. 
+
+
+
+## *Prédictions*
+
+```{r}
+periode_E1[1:7]
+periode_E1[length(periode_E1)]
+#periode j6
+dates_futures <- data.frame(date = seq(max(data_journaliere$date) + 1,
+                                       by = 1, length.out = 40))
+```
+Pour prédire des valeurs futures, vous devez avoir les dates futures disponibles.
+Créons un nouveau dataframe avec les nouvelles dates pour la prédiction.
+Supposons que vous voulez prédire les 40 prochains jours.
+```{r}
+dates_futures <- data.frame(date = seq(max(data_journaliere$date) + 1,
+                                       by = 1, length.out = 40))
+```
+
+Prédictions : 
+```{r, warning=FALSE}
+modele <- lm(E1 ~ date, data = data_journaliere)
+predictions <- predict(modele, newdata = dates_futures)
+predictions_E1=rep(NA,40)
+for (i in 1:40){
+  valeur_periode=5+i%%7
+  predictions_E1[i] = predictions[i] + periode_E1[valeur_periode]
+
+}
+```
+
+```{r, warning=FALSE}
+prediction_E1 = predictions + c(periode_E1[6:7],periode_E1[1:7],periode_E1[1]) #sur 10
+
+derniere_date <- max(data_journaliere$date, na.rm = TRUE)
+```
+Créer une séquence de 10 nouvelles dates à partir du jour après la dernière date
+```{r}
+nouvelles_dates <- seq(derniere_date + 1, by = "days", length.out = 40)
+```
+Créer un nouveau dataframe avec les nouvelles dates
+```{r}
+nouvelles_lignes <- data.frame(date = nouvelles_dates)
+```
+
+Ajouter des NA aux autres colonnes du nouveau dataframe
+```{r}
+for(col in names(data_journaliere)) {
+  if(col != "date") {
+    nouvelles_lignes[[col]] <- NA
+  }
+}
+```
+
+Combiner le dataframe original avec le nouveau dataframe de nouvelles dates
+```{r}
+data_journaliere2 <- rbind(data_journaliere, nouvelles_lignes)
+```
+```{r}
+ggplot(data_journaliere2, aes(x = date, y = E1)) +
+  geom_smooth(method="lm")+
+  geom_point(aes(color = anomalie)) +
+  scale_color_manual(values = c("TRUE" = "red", "FALSE" = "blue")) +
+  geom_line(aes(y = c(data_journaliere$modele_additif_E1, predictions_E1)), col = "grey40") +
+  geom_vline(xintercept = as.Date("2017-01-01"), linetype = "dashed", color = "black") +
+  labs(title = "Modèle additif sur une période de 7 jours (E1)",
+       x = "Date",
+       y = "Nombre véhicules") 
+```
+
+# ***Intersection 2***
+## *Modèle additif*
+```{r}
+res_lm_E2 <- lm(data_journaliere$E2~data_journaliere$date)
+E2_detendance <- res_lm_E2$residuals 
+periode_E2 <- calcul_periodicite(E2_detendance, 7)
+data_journaliere$modele_additif_E2 <- res_lm_E2$fitted.values + periode_E2
+ggplot(data_journaliere, aes(date, E2)) +
+  geom_point(size = 0.5) +
+  geom_line(aes(y = modele_additif_E2), col = "red")
+```
+Mauvais modèle : 
+
+## *cassure modèle linéaire :*
+```{r}
+t0_jour=which(data_journaliere$date=="2017-01-01")
+n <- length(data_journaliere$date)
+
+tendance_E2_1=lm(data_journaliere$E2[1:t0_jour]~data_journaliere$date[1:t0_jour])$fitted
+tendance_E2_2=lm(data_journaliere$E2[t0_jour:n]~data_journaliere$date[t0_jour:n])$fitted
+
+
+res_chow_2<- chow.test(tendance_E2_1,data_journaliere$date[1:t0_jour],tendance_E2_2,data_journaliere$date[t0_jour:n])
+k=2
+f=c(qf(0.95,df1=k,df2=(length(tendance_E2_2)+length(tendance_E1_1)+2*k)),Inf)
+if (res_chow_2[1] > f[1]){
+  print(TRUE)
+} else {
+  print(FALSE)
+}
+```
+Il y a donc une cassure bien visible sur l'intersection 2. 
+
+visualisation : 
+```{r}
+data_journaliere$tendance_lin_E2 <- NA
+data_journaliere$tendance_lin_E2[0:t0_jour] <- tendance_E2_1
+data_journaliere$tendance_lin_E2[t0_jour:n] <- tendance_E2_2
+ggplot(data_journaliere, aes(date, E2)) +
+  geom_point(col = "grey") +
+  geom_line(aes(y = tendance_lin_E2), col = "red") +
+  geom_line(aes(x = date[(t0_jour)]), col = "blue") +
+  ggtitle("Tendance linéaire avant et après l'ouverture de la 4e intersection")
+```
+
+# ***Intersection 4***
+```{r}
+t0_jour <- which(data_journaliere$date=="2017-01-01")
+N <- nrow(data_journaliere)
+data_I4 <- data_journaliere[t0_jour:N,]
+```
+
+```{r}
+ggplot(data_I4,aes(x=date,y=E4)) +
+  geom_point() 
+```
+Détecter la cassure : 
+```{r, warning=FALSE}
+n<-nrow(data_I4)
+chow_pvalues<-rep(NA,n)
+for(t0 in 2:(n-2)){
+ x1<-matrix(data_I4$date[1:t0],ncol=1)
+ y1<-data_I4$E4[1:t0]
+ 
+ x2<-matrix(data_I4$date[-(1:t0)],ncol=1)
+ y2<-data_I4$E4[-(1:t0)]
+ 
+ res_chow <-chow.test(y1,x1,y2,x2)
+ chow_pvalues[t0]<-res_chow[4]
+}
+
+cassure <- which.min(log(chow_pvalues))
+```
+
+```{r, warning=FALSE}
+ggplot(data_I4, aes(date, E4)) +
+  geom_point() +
+  geom_line(aes(x=data_I4$date[cassure]), col = "blue")
+```
+Modèle linéaire sur les deux parties : 
+
+```{r}
+n <- nrow(data_I4)
+data_I4_avant <- data_I4[0:cassure,]
+data_I4_apres <- data_I4[(cassure+1):n,]
+```
+
+mettons en place les deux modèles
+```{r, include=FALSE}
+attach(data_I4_avant)
+res_lm_1_E4 <- lm(E4~date)
+data_I4_avant$tend_E4 <- res_lm_1_E4$fitted.values
+```
+
+```{r, include=FALSE}
+attach(data_I4_apres)
+res_lm_2_E4 <- lm(E4~date)
+data_I4_apres$tend_E4 <- res_lm_2_E4$fitted.values
+```
+
+Valeur dans 'data' :
+```{r}
+data_I4$tend_E4 <- NA
+data_I4$tend_E4[0:cassure] <- data_I4_avant$tend_E4
+data_I4$tend_E4[(cassure+1):n] <- data_I4_apres$tend_E4
+```
+
+
+Visualisation
+```{r}
+ggplot(data_I4, aes(date, E4)) +
+  geom_point(col = "grey") +
+  geom_line(aes(y = data_I4$tend_E4), col = "red") +
+  geom_line(aes(x=data_I4$date[cassure]), col = "blue") +
+  ggtitle("Tendance linéaire avant et après l'ouverture de la 4e intersection")
+```
+On voit bien la différence ici.
+On observe une augmentation dans les premiers mois après l'ouverture de la 4e intersection, puis l'augmentation est beaucoup plus lente. 
+
+# ***Ratios par intersection par jour et par mois :***
+
+Par jour, ratios entrées sur intersection
+```{r}
+data_journaliere$E1_I1 <- data_journaliere$E1 / data_journaliere$I1
+data_journaliere$E2_I2 <- data_journaliere$E2 / data_journaliere$I2
+data_journaliere$E3_I3 <- data_journaliere$E3 / data_journaliere$I3
+data_journaliere$E4_I4 <- data_journaliere$E4 / data_journaliere$I4
+
+```
+
+Par mois 
+```{r}
+data_mois$E1_I1=data_mois$E1/data_mois$I1
+data_mois$E2_I2=data_mois$E2/data_mois$I2
+data_mois$E3_I3=data_mois$E3/data_mois$I3
+data_mois$E4_I4=data_mois$E4/data_mois$I4
+```
+
+## *Visualisation des ratios par mois : *
+
+```{r,echo=FALSE,warning=FALSE}
+data_mois$month_numeric <- as.numeric(as.factor(data_mois$month)) # ou une autre conversion appropriée
+
+a <- lm(E1_I1[1:15] ~ month_numeric[1:15], data = data_mois)$fitted
+b <- lm(E1_I1[16:20] ~ month_numeric[16:20], data = data_mois)$fitted
+c <- c(a, b)
+
+
+
+ggplot(data=data_mois, aes(x=month)) +
+  geom_point(aes(y=E1_I1), color="blue") +
+  geom_point(aes(y=E2_I2), color="green") +
+  geom_point(aes(y=E3_I3), color="red") +
+  geom_point(aes(y=E4_I4), color="orange") +
+  geom_line(aes(y=c,x=1:length(c)))+
+  geom_vline(xintercept="2017-01", linetype="dashed", color="black") +
+  labs(title="Ratio Ei/Ii pour chaque intersection",
+       x="Date",
+       y="Ratio Ei/Ii",
+       color="Intersection")
+
+
+
+
+```
+
+
+
+
